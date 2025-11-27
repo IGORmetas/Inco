@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>INCO - Space Game</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+    }
+
+    #game-canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 10;
+      color: #fff;
+      text-shadow: 0 0 6px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
+    #score {
+      background: rgba(0, 0, 0, 0.5);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    #bonus-message {
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    /* Overlays (start + win) */
+    #start-screen,
+    #win-screen {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at top, rgba(100, 150, 255, 0.3), rgba(0, 0, 0, 0.95));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+    }
+
+    #start-screen .panel {
+      background: rgba(0, 0, 0, 0.8);
+      border-radius: 24px;
+      padding: 24px 32px;
+      max-width: 420px;
+      text-align: center;
+      color: #fff;
+      box-shadow: 0 0 30px rgba(0,0,0,0.8);
+    }
+
+    #start-screen h1 {
+      font-size: 32px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    #start-screen .subtitle {
+      font-size: 14px;
+      opacity: 0.8;
+      margin-bottom: 16px;
+    }
+
+    .instructions {
+      list-style: none;
+      text-align: left;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+
+    .instructions li {
+      margin-bottom: 6px;
+    }
+
+    /* Buttons */
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(135deg, #4fd1ff, #7bffb5);
+      color: #000;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+      transition: transform 0.1s, box-shadow 0.1s, opacity 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 35px rgba(0,0,0,0.5);
+    }
+
+    button:active {
+      transform: translateY(1px) scale(0.98);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+    }
+
+    /* Win Screen */
+    #win-screen {
+      display: none; /* hidden until win */
+      background: radial-gradient(circle, rgba(255,255,200,0.6), rgba(0,0,0,0.95));
+    }
+
+    #win-screen .glow {
+      position: absolute;
+      width: 60vmin;
+      height: 60vmin;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.9), rgba(255,255,200,0), rgba(0,0,0,0));
+      filter: blur(4px);
+      animation: pulse 3s infinite alternate;
+    }
+
+    #win-screen .win-text {
+      position: relative;
+      text-align: center;
+      color: #fff;
+      text-shadow: 0 0 16px rgba(0,0,0,0.9);
+    }
+
+    #win-screen h1 {
+      font-size: 40px;
+      margin-bottom: 8px;
+    }
+
+    #win-screen p {
+      margin-bottom: 16px;
+      font-size: 18px;
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
+      100% {
+        transform: scale(1.2);
+        opacity: 1;
+      }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- Start Screen -->
+  <div id="start-screen">
+    <div class="panel">
+      <h1>INCO</h1>
+      <p class="subtitle">Space Bonus Hunt</p>
+
+      <h2>How to Play</h2>
+      <ul class="instructions">
+        <li>Move your ship with the mouse.</li>
+        <li>Collect <strong>20 bonus orbs</strong> to win.</li>
+        <li>Meteors will get faster and come from all sides.</li>
+        <li>Each bonus destroys all meteors in a big explosion.</li>
+        <li>Try to survive and grab all the bonuses!</li>
+      </ul>
+
+      <button id="start-btn">Start Game</button>
+    </div>
+  </div>
+
+  <!-- Win Screen -->
+  <div id="win-screen">
+    <div class="glow"></div>
+    <div class="win-text">
+      <h1>Victory!</h1>
+      <p>You collected 20 bonuses!</p>
+      <button id="play-again-btn">Play Again</button>
+    </div>
+  </div>
+
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="score">Bonuses: 0 / 20</div>
+    <div id="bonus-message"></div>
+  </div>
+
+  <script>
+    // ===== BASIC SETUP =====
+    const canvas = document.getElementById("game-canvas");
+    const ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    // HUD elements
+    const scoreEl = document.getElementById("score");
+    const bonusMsgEl = document.getElementById("bonus-message");
+
+    // Screens & buttons
+    const startScreen = document.getElementById("start-screen");
+    const winScreen = document.getElementById("win-screen");
+    const startBtn = document.getElementById("start-btn");
+    const playAgainBtn = document.getElementById("play-again-btn");
+
+    // ===== IMAGES =====
+    const backgroundImg = new Image();
+    backgroundImg.src = "INCO.png";
+
+    const playerImg = new Image();
+    playerImg.src = "i.png";
+
+    const meteorImages = ["f.png", "u.png", "m.png"].map(src => {
+      const img = new Image();
+      img.src = src;
+      return img;
+    });
+
+    const bonusImg = new Image();
+    bonusImg.src = "o.jpg";
+
+    // ===== GAME STATE =====
+    let gameState = "start"; // "start" | "playing" | "won"
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height * 0.75,
+      width: 80,
+      height: 80,
+      radius: 35
+    };
+
+    let mouseX = player.x;
+    let mouseY = player.y;
+
+    const meteors = [];
+    const explosions = [];
+    let bonus = null;
+    let lastMeteorSpawn = 0;
+    let meteorSpawnInterval = 900; // ms (will decrease)
+    let meteorSpeedMultiplier = 1;
+
+    let lastBonusSpawn = 0;
+    let bonusSpawnInterval = 4000; // ms
+    let bonusesCollected = 0;
+    const targetBonuses = 20;
+
+    let lastTime = 0;
+    let bonusMessageTimer = 0;
+
+    // ===== EVENT LISTENERS =====
+    window.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+    });
+
+    window.addEventListener("touchmove", (e) => {
+      const t = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      mouseX = t.clientX - rect.left;
+      mouseY = t.clientY - rect.top;
+      e.preventDefault();
+    }, { passive: false });
+
+    startBtn.addEventListener("click", () => {
+      startNewGame();
+    });
+
+    playAgainBtn.addEventListener("click", () => {
+      winScreen.style.display = "none";
+      startNewGame();
+    });
+
+    // ===== GAME CONTROL FUNCTIONS =====
+    function startNewGame() {
+      gameState = "playing";
+      startScreen.style.display = "none";
+
+      // reset game state
+      meteors.length = 0;
+      explosions.length = 0;
+      bonus = null;
+      bonusesCollected = 0;
+      meteorSpawnInterval = 900;
+      meteorSpeedMultiplier = 1;
+      lastMeteorSpawn = 0;
+      lastBonusSpawn = 0;
+      bonusMessageTimer = 0;
+
+      player.x = canvas.width / 2;
+      player.y = canvas.height * 0.75;
+      updateScoreText();
+    }
+
+    // ===== SPAWNERS =====
+    function spawnMeteor() {
+      const side = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
+      const size = 40 + Math.random() * 40;
+      const speedBase = 1.0 + Math.random() * 1.5;
+      const img = meteorImages[Math.floor(Math.random() * meteorImages.length)];
+
+      let x, y, vx, vy;
+
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+
+      switch (side) {
+        case 0: // top
+          x = Math.random() * canvas.width;
+          y = -size;
+          vx = (Math.random() - 0.5) * 0.8;
+          vy = speedBase;
+          break;
+        case 1: // right
+          x = canvas.width + size;
+          y = Math.random() * canvas.height;
+          vx = -speedBase;
+          vy = (Math.random() - 0.5) * 0.8;
+          break;
+        case 2: // bottom
+          x = Math.random() * canvas.width;
+          y = canvas.height + size;
+          vx = (Math.random() - 0.5) * 0.8;
+          vy = -speedBase;
+          break;
+        case 3: // left
+          x = -size;
+          y = Math.random() * canvas.height;
+          vx = speedBase;
+          vy = (Math.random() - 0.5) * 0.8;
+          break;
+      }
+
+      // Slight bias toward center so they cross the play area
+      const dirX = centerX - x;
+      const dirY = centerY - y;
+      const len = Math.hypot(dirX, dirY) || 1;
+      vx += (dirX / len) * 0.5;
+      vy += (dirY / len) * 0.5;
+
+      meteors.push({
+        x,
+        y,
+        vx,
+        vy,
+        size,
+        img,
+        exploding: false
+      });
+    }
+
+    function spawnBonus() {
+      const margin = 80;
+      const x = margin + Math.random() * (canvas.width - margin * 2);
+      const y = margin + Math.random() * (canvas.height - margin * 2);
+
+      bonus = {
+        x,
+        y,
+        radius: 28
+      };
+    }
+
+    // ===== UPDATE & DRAW =====
+    function updateScoreText() {
+      scoreEl.textContent = `Bonuses: ${bonusesCollected} / ${targetBonuses}`;
+    }
+
+    function triggerBonusCollected() {
+      bonusesCollected++;
+      updateScoreText();
+
+      // Show "BONUS!" message
+      bonusMessageTimer = 1000; // ms
+      bonusMsgEl.textContent = "BONUS!";
+
+      // Turn all current meteors into explosions
+      meteors.forEach(m => {
+        explosions.push({
+          x: m.x,
+          y: m.y,
+          radius: 10,
+          maxRadius: m.size * 1.6,
+          alpha: 1
+        });
+      });
+      meteors.length = 0;
+
+      // Increase difficulty
+      meteorSpeedMultiplier += 0.12;
+      meteorSpawnInterval = Math.max(300, meteorSpawnInterval - 60);
+
+      // Remove current bonus
+      bonus = null;
+
+      // Check win condition
+      if (bonusesCollected >= targetBonuses) {
+        winGame();
+      }
+    }
+
+    function winGame() {
+      gameState = "won";
+      winScreen.style.display = "flex";
+    }
+
+    function updatePlayer(dt) {
+      // Move instantly to mouse (for simple control)
+      player.x = mouseX;
+      player.y = mouseY;
+
+      // Clamp to screen
+      player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+      player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+    }
+
+    function updateMeteors(dt) {
+      const speedScale = meteorSpeedMultiplier;
+      for (let i = meteors.length - 1; i >= 0; i--) {
+        const m = meteors[i];
+        m.x += m.vx * speedScale * dt * 0.15;
+        m.y += m.vy * speedScale * dt * 0.15;
+
+        // Remove if off-screen far enough
+        if (m.x < -200 || m.x > canvas.width + 200 || m.y < -200 || m.y > canvas.height + 200) {
+          meteors.splice(i, 1);
+        }
+      }
+    }
+
+    function updateBonus(dt) {
+      if (!bonus) return;
+
+      // Collision with player
+      const dx = bonus.x - player.x;
+      const dy = bonus.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < bonus.radius + player.radius) {
+        triggerBonusCollected();
+      }
+    }
+
+    function updateExplosions(dt) {
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        const e = explosions[i];
+        e.radius += dt * 0.2;
+        e.alpha -= dt * 0.0015;
+        if (e.alpha <= 0 || e.radius >= e.maxRadius) {
+          explosions.splice(i, 1);
+        }
+      }
+    }
+
+    // Drawing
+    function drawBackground() {
+      if (backgroundImg.complete && backgroundImg.naturalWidth > 0) {
+        ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
+      } else {
+        const g = ctx.createRadialGradient(
+          canvas.width / 2,
+          canvas.height / 2,
+          0,
+          canvas.width / 2,
+          canvas.height / 2,
+          Math.max(canvas.width, canvas.height)
+        );
+        g.addColorStop(0, "#101020");
+        g.addColorStop(1, "#000000");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function drawPlayer() {
+      const w = player.width;
+      const h = player.height;
+      const x = player.x - w / 2;
+      const y = player.y - h / 2;
+
+      if (playerImg.complete && playerImg.naturalWidth > 0) {
+        ctx.drawImage(playerImg, x, y, w, h);
+      } else {
+        ctx.fillStyle = "#4fd1ff";
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawMeteors() {
+      meteors.forEach(m => {
+        const size = m.size;
+
+        if (m.img.complete && m.img.naturalWidth > 0) {
+          ctx.save();
+          ctx.translate(m.x, m.y);
+          ctx.rotate(((m.x + m.y) / 150) % (Math.PI * 2));
+          ctx.drawImage(m.img, -size / 2, -size / 2, size, size);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = "#ff8844";
+          ctx.beginPath();
+          ctx.arc(m.x, m.y, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawBonus() {
+      if (!bonus) return;
+      const r = bonus.radius;
+
+      if (bonusImg.complete && bonusImg.naturalWidth > 0) {
+        ctx.save();
+        ctx.translate(bonus.x, bonus.y);
+        ctx.rotate(Date.now() / 600 % (Math.PI * 2));
+        ctx.drawImage(bonusImg, -r, -r, r * 2, r * 2);
+        ctx.restore();
+      } else {
+        const g = ctx.createRadialGradient(bonus.x, bonus.y, 0, bonus.x, bonus.y, r);
+        g.addColorStop(0, "#ffffaa");
+        g.addColorStop(1, "#ffaa00");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(bonus.x, bonus.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawExplosions() {
+      explosions.forEach(e => {
+        const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.radius);
+        g.addColorStop(0, `rgba(255,255,255,${e.alpha})`);
+        g.addColorStop(0.4, `rgba(255,200,0,${e.alpha * 0.8})`);
+        g.addColorStop(1, `rgba(255,0,0,0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    // ===== MAIN LOOP =====
+    function loop(timestamp) {
+      if (!lastTime) lastTime = timestamp;
+      const dt = timestamp - lastTime;
+      lastTime = timestamp;
+
+      if (gameState === "playing") {
+        // Update timers
+        lastMeteorSpawn += dt;
+        lastBonusSpawn += dt;
+
+        if (lastMeteorSpawn >= meteorSpawnInterval) {
+          spawnMeteor();
+          lastMeteorSpawn = 0;
+        }
+
+        if (!bonus && lastBonusSpawn >= bonusSpawnInterval) {
+          spawnBonus();
+          lastBonusSpawn = 0;
+        }
+
+        if (bonusMessageTimer > 0) {
+          bonusMessageTimer -= dt;
+          if (bonusMessageTimer <= 0) {
+            bonusMsgEl.textContent = "";
+          }
+        }
+
+        updatePlayer(dt);
+        updateMeteors(dt);
+        updateBonus(dt);
+        updateExplosions(dt);
+      }
+
+      // Draw
+      drawBackground();
+      drawBonus();
+      drawMeteors();
+      drawPlayer();
+      drawExplosions();
+
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
