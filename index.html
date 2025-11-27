@@ -54,9 +54,10 @@
       font-weight: bold;
     }
 
-    /* Overlays (start + win) */
+    /* Overlays (start + win + lose) */
     #start-screen,
-    #win-screen {
+    #win-screen,
+    #lose-screen {
       position: fixed;
       inset: 0;
       background: radial-gradient(circle at top, rgba(100, 150, 255, 0.3), rgba(0, 0, 0, 0.95));
@@ -66,7 +67,8 @@
       z-index: 20;
     }
 
-    #start-screen .panel {
+    #start-screen .panel,
+    #lose-screen .panel {
       background: rgba(0, 0, 0, 0.8);
       border-radius: 24px;
       padding: 24px 32px;
@@ -157,6 +159,24 @@
       font-size: 18px;
     }
 
+    /* Lose Screen */
+    #lose-screen {
+      display: none; /* hidden until lose */
+      background: radial-gradient(circle, rgba(255,80,80,0.6), rgba(0,0,0,0.95));
+    }
+
+    #lose-screen h1 {
+      font-size: 40px;
+      margin-bottom: 8px;
+      color: #ffb3b3;
+    }
+
+    #lose-screen p {
+      margin-bottom: 16px;
+      font-size: 18px;
+      color: #ffe0e0;
+    }
+
     @keyframes pulse {
       0% {
         transform: scale(1);
@@ -184,9 +204,10 @@
       <ul class="instructions">
         <li>Move your ship with the mouse.</li>
         <li>Collect <strong>20 bonus orbs</strong> to win.</li>
-        <li>Meteors will get faster and come from all sides.</li>
+        <li>Meteors come from all sides and get faster.</li>
+        <li>Bonuses fall from above. Catch them!</li>
         <li>Each bonus destroys all meteors in a big explosion.</li>
-        <li>Try to survive and grab all the bonuses!</li>
+        <li>If you hit a meteor, the game is over.</li>
       </ul>
 
       <button id="start-btn">Start Game</button>
@@ -200,6 +221,15 @@
       <h1>Victory!</h1>
       <p>You collected 20 bonuses!</p>
       <button id="play-again-btn">Play Again</button>
+    </div>
+  </div>
+
+  <!-- Lose Screen -->
+  <div id="lose-screen">
+    <div class="panel">
+      <h1>Game Over</h1>
+      <p>You crashed into a meteor!</p>
+      <button id="try-again-btn">Try Again</button>
     </div>
   </div>
 
@@ -230,8 +260,10 @@
     // Screens & buttons
     const startScreen = document.getElementById("start-screen");
     const winScreen = document.getElementById("win-screen");
+    const loseScreen = document.getElementById("lose-screen");
     const startBtn = document.getElementById("start-btn");
     const playAgainBtn = document.getElementById("play-again-btn");
+    const tryAgainBtn = document.getElementById("try-again-btn");
 
     // ===== IMAGES =====
     const backgroundImg = new Image();
@@ -250,14 +282,14 @@
     bonusImg.src = "o.jpg";
 
     // ===== GAME STATE =====
-    let gameState = "start"; // "start" | "playing" | "won"
+    let gameState = "start"; // "start" | "playing" | "won" | "lost"
 
     const player = {
       x: canvas.width / 2,
       y: canvas.height * 0.75,
-      width: 80,
-      height: 80,
-      radius: 35
+      width: 130,   // bigger character
+      height: 130,
+      radius: 60    // bigger collision radius
     };
 
     let mouseX = player.x;
@@ -271,7 +303,7 @@
     let meteorSpeedMultiplier = 1;
 
     let lastBonusSpawn = 0;
-    let bonusSpawnInterval = 4000; // ms
+    let bonusSpawnInterval = 3000; // ms
     let bonusesCollected = 0;
     const targetBonuses = 20;
 
@@ -302,10 +334,17 @@
       startNewGame();
     });
 
+    tryAgainBtn.addEventListener("click", () => {
+      loseScreen.style.display = "none";
+      startNewGame();
+    });
+
     // ===== GAME CONTROL FUNCTIONS =====
     function startNewGame() {
       gameState = "playing";
       startScreen.style.display = "none";
+      winScreen.style.display = "none";
+      loseScreen.style.display = "none";
 
       // reset game state
       meteors.length = 0;
@@ -321,6 +360,12 @@
       player.x = canvas.width / 2;
       player.y = canvas.height * 0.75;
       updateScoreText();
+    }
+
+    function loseGame() {
+      if (gameState !== "playing") return;
+      gameState = "lost";
+      loseScreen.style.display = "flex";
     }
 
     // ===== SPAWNERS =====
@@ -375,20 +420,21 @@
         vx,
         vy,
         size,
-        img,
-        exploding: false
+        img
       });
     }
 
+    // Bonuses now fall from the top
     function spawnBonus() {
-      const margin = 80;
-      const x = margin + Math.random() * (canvas.width - margin * 2);
-      const y = margin + Math.random() * (canvas.height - margin * 2);
+      const marginX = 80;
+      const x = marginX + Math.random() * (canvas.width - marginX * 2);
+      const y = -40; // above the top
 
       bonus = {
         x,
         y,
-        radius: 28
+        radius: 28,
+        vy: 1.4 + Math.random() * 0.8 // falling speed
       };
     }
 
@@ -431,6 +477,7 @@
     }
 
     function winGame() {
+      if (gameState !== "playing") return;
       gameState = "won";
       winScreen.style.display = "flex";
     }
@@ -452,6 +499,15 @@
         m.x += m.vx * speedScale * dt * 0.15;
         m.y += m.vy * speedScale * dt * 0.15;
 
+        // collision with player -> lose
+        const dx = m.x - player.x;
+        const dy = m.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < m.size / 2 + player.radius) {
+          loseGame();
+          return; // stop updating others this frame
+        }
+
         // Remove if off-screen far enough
         if (m.x < -200 || m.x > canvas.width + 200 || m.y < -200 || m.y > canvas.height + 200) {
           meteors.splice(i, 1);
@@ -461,6 +517,15 @@
 
     function updateBonus(dt) {
       if (!bonus) return;
+
+      // move bonus downwards
+      bonus.y += bonus.vy * dt * 0.15;
+
+      // if it goes off the screen, just remove it (new will spawn later)
+      if (bonus.y - bonus.radius > canvas.height + 40) {
+        bonus = null;
+        return;
+      }
 
       // Collision with player
       const dx = bonus.x - player.x;
